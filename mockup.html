@@ -1,0 +1,630 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Evaluador Dinámico - Cámara Sevilla</title>
+    <!--Autoría del desarrollador-->
+    <meta name="author" content="Willman Acosta Lugo" />
+    <meta name="description" content="Evaluador Dinámico - Cámara Sevilla" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+      @import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap");
+      body {
+        font-family: "Inter", sans-serif;
+      }
+      .color-camara {
+        color: #0072bc;
+      }
+      .bg-camara {
+        background-color: #0072bc;
+      }
+      .bg-camara-dark {
+        background-color: #003366;
+      }
+      .border-camara {
+        border-color: #0072bc;
+      }
+    </style>
+  </head>
+  <body class="bg-slate-50 min-h-screen">
+    <div id="root"></div>
+
+    <script type="text/babel">
+      const { useState, useMemo, useEffect } = React;
+
+      function App() {
+        // ESTADOS PRINCIPALES
+        const [activeTab, setActiveTab] = useState("evaluar"); // 'evaluar' o 'configurar'
+        const [studentName, setStudentName] = useState("");
+        const [gradebook, setGradebook] = useState([]);
+
+        // Estado de Módulos (Gestión de múltiples módulos)
+        const [modules, setModules] = useState([
+          {
+            id: "m1",
+            code: "0489",
+            name: "Sistemas de Gestión Empresarial",
+            rubric: [
+              {
+                id: "ra1",
+                title:
+                  "RA 1. Opera sistemas empresariales de gestión de información...",
+                ces: [
+                  {
+                    id: "c1",
+                    title: "CE a) Integración de módulos",
+                    weight: 40,
+                  },
+                  { id: "c2", title: "CE b) Informes XML/QWeb", weight: 30 },
+                  {
+                    id: "c3",
+                    title: "CE c) Extracción de datos (CSV)",
+                    weight: 30,
+                  },
+                ],
+              },
+            ],
+          },
+        ]);
+        const [activeModuleId, setActiveModuleId] = useState("m1");
+
+        // Derivados del módulo activo
+        const activeModule = useMemo(
+          () => modules.find((m) => m.id === activeModuleId) || modules[0],
+          [modules, activeModuleId],
+        );
+        const rubric = activeModule.rubric || [];
+
+        // Estado de las selecciones actuales
+        const [selections, setSelections] = useState({});
+
+        // Funciones de actualización del módulo activo
+        const updateActiveModule = (updated) => {
+          setModules(
+            modules.map((m) => (m.id === activeModuleId ? updated : m)),
+          );
+        };
+
+        const updateActiveModuleRubric = (newRubric) => {
+          updateActiveModule({ ...activeModule, rubric: newRubric });
+        };
+
+        // Limpiar evaluación al cambiar de módulo
+        useEffect(() => {
+          setSelections({});
+          setStudentName("");
+        }, [activeModuleId]);
+
+        useEffect(() => {
+          if (window.lucide) window.lucide.createIcons();
+        }, [activeTab, rubric, selections, modules, activeModuleId]);
+
+        // CÁLCULOS DINÁMICOS
+        // Aplanamos temporalmente los CEs para facilitar los cálculos de peso y notas
+        const allCEs = useMemo(() => rubric.flatMap((ra) => ra.ces), [rubric]);
+
+        const totalWeight = useMemo(
+          () => allCEs.reduce((sum, c) => sum + Number(c.weight), 0),
+          [allCEs],
+        );
+
+        const currentGrade = useMemo(() => {
+          const criterionIds = allCEs.map((c) => c.id);
+          const allSelected =
+            criterionIds.length > 0 &&
+            criterionIds.every((id) => selections[id]);
+
+          if (!allSelected) return null;
+
+          let weightedSum = 0;
+          allCEs.forEach((c) => {
+            const scoreMap = {
+              excelente: 9.5,
+              adecuado: 7.5,
+              desarrollo: 4.5,
+              insuficiente: 1.5,
+            };
+            weightedSum += scoreMap[selections[c.id]] * (c.weight / 100);
+          });
+          return weightedSum.toFixed(2);
+        }, [selections, allCEs]);
+
+        // ACCIONES DE CONFIGURACIÓN
+        const addRA = () => {
+          const newId = "ra" + Date.now();
+          updateActiveModuleRubric([
+            ...rubric,
+            {
+              id: newId,
+              title: "Nuevo Resultado de Aprendizaje (RA)",
+              ces: [],
+            },
+          ]);
+        };
+
+        const removeRA = (raId) => {
+          const raToRemove = rubric.find((ra) => ra.id === raId);
+          const newSelections = { ...selections };
+          raToRemove.ces.forEach((ce) => delete newSelections[ce.id]);
+          setSelections(newSelections);
+          updateActiveModuleRubric(rubric.filter((ra) => ra.id !== raId));
+        };
+
+        const updateRA = (raId, value) => {
+          updateActiveModuleRubric(
+            rubric.map((ra) => (ra.id === raId ? { ...ra, title: value } : ra)),
+          );
+        };
+
+        const addCE = (raId) => {
+          const newId = "c" + Date.now();
+          updateActiveModuleRubric(
+            rubric.map((ra) => {
+              if (ra.id === raId)
+                return {
+                  ...ra,
+                  ces: [
+                    ...ra.ces,
+                    {
+                      id: newId,
+                      title: "Nuevo Criterio de Evaluación (CE)",
+                      weight: 0,
+                    },
+                  ],
+                };
+              return ra;
+            }),
+          );
+        };
+
+        const removeCE = (raId, ceId) => {
+          updateActiveModuleRubric(
+            rubric.map((ra) => {
+              if (ra.id === raId)
+                return { ...ra, ces: ra.ces.filter((ce) => ce.id !== ceId) };
+              return ra;
+            }),
+          );
+          const newSelections = { ...selections };
+          delete newSelections[ceId];
+          setSelections(newSelections);
+        };
+
+        const updateCE = (raId, ceId, field, value) => {
+          updateActiveModuleRubric(
+            rubric.map((ra) => {
+              if (ra.id === raId) {
+                return {
+                  ...ra,
+                  ces: ra.ces.map((ce) =>
+                    ce.id === ceId ? { ...ce, [field]: value } : ce,
+                  ),
+                };
+              }
+              return ra;
+            }),
+          );
+        };
+
+        // ACCIONES DE EVALUACIÓN
+        const handleSelect = (id, level) => {
+          setSelections((prev) => ({ ...prev, [id]: level }));
+        };
+
+        const saveRecord = () => {
+          if (!studentName || !currentGrade) return;
+          const newRecord = {
+            id: Date.now(),
+            name: studentName,
+            grade: currentGrade,
+            moduleId: activeModuleId,
+          };
+          setGradebook([newRecord, ...gradebook]);
+          setStudentName("");
+          setSelections({});
+        };
+
+        return (
+          <div className="max-w-6xl mx-auto p-4 md:p-8">
+            {/* Header Institucional */}
+            <header className="flex flex-col md:flex-row items-center justify-between bg-white p-6 rounded-2xl shadow-sm border border-slate-200 mb-8">
+              <div className="flex items-center gap-4">
+                <div className="w-16 h-16 bg-slate-100 rounded-lg flex items-center justify-center overflow-hidden">
+                  <img
+                    src="https://cdn.fpcampuscamara.es/wp-content/uploads/sites/12/2021/11/logo-cfp.png"
+                    alt="Logo Cámara"
+                    className="w-full object-contain p-2"
+                  />
+                </div>
+                <div className="flex flex-col relative">
+                  <select
+                    value={activeModuleId}
+                    onChange={(e) => setActiveModuleId(e.target.value)}
+                    className="text-xl font-bold text-slate-800 outline-none cursor-pointer appearance-none bg-transparent hover:bg-slate-50 border border-transparent hover:border-slate-200 rounded-lg px-2 py-1 pr-8 -ml-2 transition-all"
+                    style={{ color: "#003366" }}
+                    title="Cambiar de módulo"
+                  >
+                    {modules.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        [{m.code}] {m.name}
+                      </option>
+                    ))}
+                  </select>
+                  <i
+                    data-lucide="chevron-down"
+                    className="w-5 h-5 absolute right-0 top-2 pointer-events-none text-slate-400"
+                  ></i>
+                  <p className="text-slate-500 text-sm ml-1 mt-1">
+                    Sistema de Evaluación Docente
+                  </p>
+                </div>
+              </div>
+
+              {/* Selector de Pestañas (RA6: Navegación) */}
+              <div className="flex bg-slate-100 p-1 rounded-xl mt-4 md:mt-0">
+                <button
+                  onClick={() => setActiveTab("evaluar")}
+                  className={`px-6 py-2 rounded-lg text-sm font-semibold transition-all ${activeTab === "evaluar" ? "bg-white shadow-sm color-camara" : "text-slate-500 hover:text-slate-700"}`}
+                >
+                  <span className="flex items-center gap-2">
+                    <i data-lucide="check-square" className="w-4 h-4"></i>{" "}
+                    Evaluar
+                  </span>
+                </button>
+                <button
+                  onClick={() => setActiveTab("configurar")}
+                  className={`px-6 py-2 rounded-lg text-sm font-semibold transition-all ${activeTab === "configurar" ? "bg-white shadow-sm color-camara" : "text-slate-500 hover:text-slate-700"}`}
+                >
+                  <span className="flex items-center gap-2">
+                    <i data-lucide="settings" className="w-4 h-4"></i>{" "}
+                    Configurar
+                  </span>
+                </button>
+              </div>
+            </header>
+
+            {activeTab === "configurar" ? (
+              /* VISTA CONFIGURACIÓN (MOCKUP NUEVO) */
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-8 animate-fadeIn">
+                <div className="md:col-span-2 space-y-4">
+                  {/* Formulario del Módulo */}
+                  <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                    <div className="flex justify-between items-center mb-4">
+                      <h2 className="text-lg font-bold text-slate-800">
+                        Datos del Módulo Profesional
+                      </h2>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => {
+                            const newId = "m" + Date.now();
+                            setModules([
+                              ...modules,
+                              {
+                                id: newId,
+                                code: "NUEVO",
+                                name: "Nuevo Módulo",
+                                rubric: [],
+                              },
+                            ]);
+                            setActiveModuleId(newId);
+                          }}
+                          className="text-xs bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1"
+                        >
+                          <i data-lucide="plus" className="w-3 h-3"></i> Módulo
+                        </button>
+                        {modules.length > 1 && (
+                          <button
+                            onClick={() => {
+                              const newModules = modules.filter(
+                                (m) => m.id !== activeModuleId,
+                              );
+                              setModules(newModules);
+                              setActiveModuleId(newModules[0].id);
+                            }}
+                            className="text-xs bg-red-50 hover:bg-red-100 text-red-600 font-bold px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1"
+                          >
+                            <i data-lucide="trash-2" className="w-3 h-3"></i>{" "}
+                            Eliminar
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                      <div>
+                        <label className="block text-xs font-bold text-slate-500 mb-1 uppercase tracking-wide">
+                          Código
+                        </label>
+                        <input
+                          type="text"
+                          value={activeModule.code}
+                          onChange={(e) =>
+                            updateActiveModule({
+                              ...activeModule,
+                              code: e.target.value,
+                            })
+                          }
+                          className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-400 outline-none font-semibold text-slate-700"
+                        />
+                      </div>
+                      <div className="md:col-span-3">
+                        <label className="block text-xs font-bold text-slate-500 mb-1 uppercase tracking-wide">
+                          Nombre del Módulo
+                        </label>
+                        <input
+                          type="text"
+                          value={activeModule.name}
+                          onChange={(e) =>
+                            updateActiveModule({
+                              ...activeModule,
+                              name: e.target.value,
+                            })
+                          }
+                          className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-400 outline-none font-semibold text-slate-700"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Estructura de la Rúbrica */}
+                  <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                    <div className="flex justify-between items-center mb-6">
+                      <h2 className="text-lg font-bold text-slate-800">
+                        Estructura Curricular
+                      </h2>
+                      <button
+                        onClick={addRA}
+                        className="flex items-center gap-2 bg-camara text-white px-4 py-2 rounded-lg text-sm hover:opacity-90 transition-opacity"
+                      >
+                        <i data-lucide="plus-circle" className="w-4 h-4"></i>{" "}
+                        Añadir RA
+                      </button>
+                    </div>
+
+                    <div className="space-y-6">
+                      {rubric.map((ra) => (
+                        <div
+                          key={ra.id}
+                          className="p-5 bg-slate-50 rounded-xl border border-slate-200"
+                        >
+                          {/* Encabezado del RA */}
+                          <div className="flex items-center gap-3 mb-4">
+                            <input
+                              type="text"
+                              value={ra.title}
+                              onChange={(e) => updateRA(ra.id, e.target.value)}
+                              placeholder="Descripción del Resultado de Aprendizaje..."
+                              className="flex-1 bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm font-bold text-slate-800 focus:ring-2 focus:ring-blue-400 outline-none"
+                            />
+                            <button
+                              onClick={() => removeRA(ra.id)}
+                              className="text-slate-400 hover:text-red-500 bg-white p-2 rounded-lg border border-slate-200"
+                            >
+                              <i data-lucide="trash-2" className="w-4 h-4"></i>
+                            </button>
+                          </div>
+
+                          {/* Lista de CEs */}
+                          <div className="pl-6 space-y-3 border-l-2 border-blue-200">
+                            {ra.ces.map((ce) => (
+                              <div
+                                key={ce.id}
+                                className="flex items-center gap-3"
+                              >
+                                <input
+                                  type="text"
+                                  value={ce.title}
+                                  onChange={(e) =>
+                                    updateCE(
+                                      ra.id,
+                                      ce.id,
+                                      "title",
+                                      e.target.value,
+                                    )
+                                  }
+                                  className="flex-1 bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-400 outline-none"
+                                />
+                                <div className="flex items-center gap-2 w-24">
+                                  <input
+                                    type="number"
+                                    value={ce.weight}
+                                    onChange={(e) =>
+                                      updateCE(
+                                        ra.id,
+                                        ce.id,
+                                        "weight",
+                                        e.target.value,
+                                      )
+                                    }
+                                    className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm text-center"
+                                  />
+                                  <span className="text-slate-400 font-bold">
+                                    %
+                                  </span>
+                                </div>
+                                <button
+                                  onClick={() => removeCE(ra.id, ce.id)}
+                                  className="text-slate-300 hover:text-red-500"
+                                >
+                                  <i
+                                    data-lucide="x-circle"
+                                    className="w-5 h-5"
+                                  ></i>
+                                </button>
+                              </div>
+                            ))}
+                            <button
+                              onClick={() => addCE(ra.id)}
+                              className="text-sm font-semibold text-blue-600 hover:text-blue-700 flex items-center gap-1 mt-2"
+                            >
+                              <i data-lucide="plus" className="w-4 h-4"></i>{" "}
+                              Añadir CE
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 h-fit sticky top-8">
+                  <h2 className="text-lg font-bold text-slate-800 mb-4">
+                    Validación
+                  </h2>
+                  <div
+                    className={`p-6 rounded-xl border-2 flex flex-col items-center justify-center transition-all ${totalWeight === 100 ? "border-green-200 bg-green-50" : "border-red-100 bg-red-50"}`}
+                  >
+                    <span
+                      className={`text-4xl font-black ${totalWeight === 100 ? "text-green-600" : "text-red-600"}`}
+                    >
+                      {totalWeight}%
+                    </span>
+                    <span className="text-xs font-semibold mt-2 uppercase tracking-widest text-slate-500">
+                      Peso Total
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-4 leading-relaxed">
+                    La suma de los criterios debe ser exactamente **100%** para
+                    que la evaluación sea consistente con la normativa DAW.
+                  </p>
+                </div>
+              </div>
+            ) : (
+              /* VISTA EVALUACIÓN (DINÁMICA) */
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 animate-fadeIn">
+                <div className="lg:col-span-2 space-y-6">
+                  <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                    <div className="mb-8">
+                      <label className="block text-sm font-bold text-slate-600 mb-2 uppercase tracking-wide">
+                        Nombre del Estudiante
+                      </label>
+                      <input
+                        type="text"
+                        value={studentName}
+                        onChange={(e) => setStudentName(e.target.value)}
+                        placeholder="Introduce el nombre completo..."
+                        className="w-full px-5 py-3 border border-slate-200 rounded-xl focus:ring-4 focus:ring-blue-100 outline-none transition-all text-lg"
+                      />
+                    </div>
+
+                    <div className="space-y-10">
+                      {rubric.map((ra) => (
+                        <div
+                          key={ra.id}
+                          className="bg-slate-50 p-6 rounded-xl border border-slate-100"
+                        >
+                          <h3 className="font-bold text-slate-800 mb-6 text-lg border-b border-slate-200 pb-2">
+                            {ra.title}
+                          </h3>
+                          <div className="space-y-8">
+                            {ra.ces.map((c) => (
+                              <div key={c.id}>
+                                <div className="flex justify-between items-end mb-3">
+                                  <h4 className="font-semibold text-slate-700">
+                                    {c.title}
+                                  </h4>
+                                  <span className="text-xs font-bold text-slate-500 bg-white border border-slate-200 px-2 py-1 rounded">
+                                    Peso: {c.weight}%
+                                  </span>
+                                </div>
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                                  {[
+                                    "excelente",
+                                    "adecuado",
+                                    "desarrollo",
+                                    "insuficiente",
+                                  ].map((level) => (
+                                    <button
+                                      key={level}
+                                      onClick={() => handleSelect(c.id, level)}
+                                      className={`p-4 rounded-xl border-2 text-left transition-all ${
+                                        selections[c.id] === level
+                                          ? "bg-blue-50 border-camara ring-2 ring-blue-100"
+                                          : "bg-white border-slate-100 hover:border-blue-200"
+                                      }`}
+                                    >
+                                      <div
+                                        className={`text-xs font-bold uppercase mb-1 ${selections[c.id] === level ? "color-camara" : "text-slate-400"}`}
+                                      >
+                                        {level}
+                                      </div>
+                                      <div className="text-[10px] text-slate-500 leading-tight">
+                                        Click para asignar
+                                      </div>
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            ))}
+                            {ra.ces.length === 0 && (
+                              <p className="text-sm text-slate-400 italic">
+                                No hay criterios configurados en este RA.
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-6 h-fit sticky top-8">
+                  <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-200 text-center">
+                    <h2 className="text-sm font-black text-slate-400 uppercase tracking-widest mb-6">
+                      Nota Final
+                    </h2>
+                    <div className="relative inline-block mb-6">
+                      <svg className="w-32 h-32 transform -rotate-90">
+                        <circle
+                          cx="64"
+                          cy="64"
+                          r="58"
+                          stroke="currentColor"
+                          strokeWidth="8"
+                          fill="transparent"
+                          className="text-slate-100"
+                        />
+                        <circle
+                          cx="64"
+                          cy="64"
+                          r="58"
+                          stroke="currentColor"
+                          strokeWidth="8"
+                          fill="transparent"
+                          strokeDasharray={364.42}
+                          strokeDashoffset={
+                            364.42 - (364.42 * (currentGrade || 0)) / 10
+                          }
+                          className={`transition-all duration-1000 ${currentGrade >= 5 ? "text-green-500" : "text-red-500"}`}
+                        />
+                      </svg>
+                      <div className="absolute inset-0 flex items-center justify-center text-4xl font-black text-slate-800">
+                        {currentGrade || "--"}
+                      </div>
+                    </div>
+                    <button
+                      disabled={
+                        !studentName || !currentGrade || totalWeight !== 100
+                      }
+                      onClick={saveRecord}
+                      className="w-full bg-camara-dark text-white py-4 rounded-xl font-bold shadow-lg shadow-blue-900/20 hover:scale-[1.02] active:scale-95 transition-all disabled:bg-slate-200 disabled:shadow-none"
+                    >
+                      Registrar Nota
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      }
+
+      const root = ReactDOM.createRoot(document.getElementById("root"));
+      root.render(<App />);
+    </script>
+  </body>
+</html>
